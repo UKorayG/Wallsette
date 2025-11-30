@@ -1,12 +1,23 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import GlitchText from '../components/GlitchText';
-import { Terminal, AlertTriangle, Play, Radio, ShieldAlert } from 'lucide-react';
+import TransferForm from '../components/TransferForm';
+import { Terminal, AlertTriangle, Play, Radio, ShieldAlert, Check, X } from 'lucide-react';
 
 export default function Home() {
   const [balance, setBalance] = useState<string>("Initializing...");
   const [isCritical, setIsCritical] = useState(false);
   const [booted, setBooted] = useState(false);
+  const [isNodeRunning, setIsNodeRunning] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string | null>(null);
+  const [terminalLogs, setTerminalLogs] = useState<string[]>([
+    'Initializing system...',
+    'Checking connections... OK',
+    'Loading modules... DONE',
+    'System ready.'
+  ]);
 
   // 1. Boot Animation
   useEffect(() => {
@@ -14,29 +25,111 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, []);
 
-  // 2. Data Fetching
-  useEffect(() => {
-    const fetchData = async () => {
+  // Utility function to add logs to terminal
+  const addTerminalLog = useCallback((message: string, isError = false) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const logMessage = isError 
+      ? `[${timestamp}] ERROR: ${message}`
+      : `[${timestamp}] ${message}`;
+      
+    setTerminalLogs(prev => [...prev, logMessage].slice(-50)); // Keep last 50 logs
+  }, []);
+
+  // Node control function
+  const toggleNode = useCallback(async () => {
+    if (isNodeRunning) {
+      // Stop node
+      setIsNodeRunning(false);
+      addTerminalLog('Stopping node...');
+      // Simulate node stopping
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      addTerminalLog('Node stopped.');
+    } else {
+      // Start node
+      setIsNodeRunning(true);
+      addTerminalLog('Starting node...');
+      // Simulate node starting
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      addTerminalLog('Node started successfully.');
+      addTerminalLog('Synchronizing with network...');
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      addTerminalLog('Node synchronized and ready.');
+    }
+  }, [isNodeRunning, addTerminalLog]);
+
+  // Wallet connection function
+  const connectWallet = useCallback(async () => {
+    if (isConnected) {
+      // Disconnect
+      setIsConnected(false);
+      setWalletAddress(null);
+      addTerminalLog('Wallet disconnected.');
+    } else {
+      // Connect
+      setIsConnecting(true);
+      addTerminalLog('Connecting wallet...');
+      
       try {
-        const res = await fetch('/api/check');
-        const data = await res.json();
-        const val = data.value;
-        setBalance(val);
-
-        const numVal = parseInt(val);
-        if (!isNaN(numVal) && numVal < 900000) {
-          setIsCritical(true);
-        } else {
-          setIsCritical(false);
-        }
+        // Simulate wallet connection
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        
+        // In a real app, you would connect to the user's wallet here
+        const mockAddress = 'GCSXUXZSA2BVUCTVYK446DSPZOO3JHVCDCK36FALHZKLFOKRJWIS3AYI';
+        
+        setWalletAddress(mockAddress);
+        setIsConnected(true);
+        addTerminalLog(`Wallet connected: ${mockAddress.substring(0, 6)}...${mockAddress.substring(50)}`);
       } catch (error) {
-        console.error('Error fetching data:', error);
-        setBalance("Error");
+        console.error('Wallet connection error:', error);
+        addTerminalLog('Failed to connect wallet.', true);
+      } finally {
+        setIsConnecting(false);
       }
-    };
+    }
+  }, [isConnected, addTerminalLog]);
 
-    fetchData();
-    const interval = setInterval(fetchData, 30000);
+  // 2. Data Fetching
+  const fetchBalance = async () => {
+    try {
+      const res = await fetch('/api/check');
+      const data = await res.json();
+      const val = data.value;
+      setBalance(val);
+
+      const numVal = parseInt(val);
+      if (!isNaN(numVal) && numVal < 900000) {
+        setIsCritical(true);
+      } else {
+        setIsCritical(false);
+      }
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setBalance("Error");
+    }
+  };
+
+  // Handle token transfer
+  const handleTransfer = async (toAddress: string, amount: string) => {
+    const response = await fetch('/api/transfer', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ to: toAddress, amount }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Transfer failed');
+    }
+
+    // Refresh balance after successful transfer
+    await fetchBalance();
+  };
+
+  useEffect(() => {
+    fetchBalance();
+    const interval = setInterval(fetchBalance, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -70,6 +163,16 @@ export default function Home() {
             <div className="flex items-center space-x-2">
               <div className={`w-3 h-3 rounded-full ${isCritical ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
               <span>STATUS: {isCritical ? 'CRITICAL' : 'NOMINAL'}</span>
+              {isNodeRunning && (
+                <span className="ml-2 text-xs px-2 py-0.5 bg-green-900/30 text-green-400 rounded">
+                  NODE RUNNING
+                </span>
+              )}
+              {isConnected && walletAddress && (
+                <span className="ml-2 text-xs px-2 py-0.5 bg-blue-900/30 text-blue-400 rounded">
+                  CONNECTED: {walletAddress.substring(0, 4)}...{walletAddress.slice(-4)}
+                </span>
+              )}
             </div>
             <div className="text-right">
               <div className="text-sm opacity-75">BALANCE</div>
@@ -89,25 +192,73 @@ export default function Home() {
                 </div>
                 <div className="h-40 overflow-y-auto font-mono text-sm bg-black p-3 rounded">
                   <p className="text-green-400">$ wallsette-cli --status</p>
-                  <p>Initializing system...</p>
-                  <p>Checking connections... <span className="text-green-400">OK</span></p>
-                  <p>Loading modules... <span className="text-green-400">DONE</span></p>
-                  <p className="mt-2">System ready.</p>
+                  {terminalLogs.map((log, index) => (
+                    <p 
+                      key={index} 
+                      className={log.includes('ERROR') ? 'text-red-400' : ''}
+                    >
+                      {log}
+                    </p>
+                  ))}
                   <p className="text-yellow-400">$ _</p>
                 </div>
               </div>
 
               {/* Quick Actions */}
               <div className="grid grid-cols-2 gap-4">
-                <button className="p-4 bg-[#00f3ff11] hover:bg-[#00f3ff22] rounded border border-[#00f3ff33] transition-colors flex flex-col items-center justify-center">
-                  <Play className="w-8 h-8 mb-2" />
-                  <span>START NODE</span>
+                <button 
+                  className={`p-4 rounded border transition-colors flex flex-col items-center justify-center ${
+                    isNodeRunning
+                      ? 'bg-red-900/30 border-red-500/50 hover:bg-red-900/40'
+                      : 'bg-[#00f3ff11] border-[#00f3ff33] hover:bg-[#00f3ff22]'
+                  }`}
+                  onClick={toggleNode}
+                  disabled={isConnecting}
+                >
+                  {isNodeRunning ? (
+                    <>
+                      <X className="w-8 h-8 mb-2 text-red-500" />
+                      <span>STOP NODE</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-8 h-8 mb-2 text-[#00f3ff]" />
+                      <span>START NODE</span>
+                    </>
+                  )}
                 </button>
-                <button className="p-4 bg-[#00f3ff11] hover:bg-[#00f3ff22] rounded border border-[#00f3ff33] transition-colors flex flex-col items-center justify-center">
+                <button 
+                  className={`p-4 rounded border transition-colors flex flex-col items-center justify-center ${
+                    isConnected
+                      ? 'bg-green-900/30 border-green-500/50 hover:bg-green-900/40'
+                      : 'bg-[#00f3ff11] border-[#00f3ff33] hover:bg-[#00f3ff22]'
+                  }`}
+                  onClick={connectWallet}
+                  disabled={isConnecting}
+                >
+                  {isConnected ? (
+                    <>
+                      <Check className="w-8 h-8 mb-2 text-green-500" />
+                      <span>CONNECTED</span>
+                      {walletAddress && (
+                        <span className="text-xs mt-1 opacity-70">
+                          {walletAddress.substring(0, 6)}...{walletAddress.substring(50)}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <Radio className={`w-8 h-8 mb-2 ${isConnecting ? 'animate-pulse' : ''}`} />
+                      <span>{isConnecting ? 'CONNECTING...' : 'CONNECT'}</span>
+                    </>
+                  )}
                   <Radio className="w-8 h-8 mb-2" />
                   <span>CONNECT</span>
                 </button>
               </div>
+              
+              {/* Transfer Form */}
+              <TransferForm onTransfer={handleTransfer} />
             </div>
 
             {/* Right Panel */}

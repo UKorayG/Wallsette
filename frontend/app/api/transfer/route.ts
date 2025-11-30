@@ -2,54 +2,26 @@ import { NextResponse } from 'next/server';
 import { 
   rpc, 
   Contract, 
+  Address,
+  Account,
   TransactionBuilder, 
   BASE_FEE, 
-  Keypair, 
-  TimeoutInfinite,
   nativeToScVal,
-  StrKey,
-  scValToNative,
-  xdr,
-  Transaction,
-  Networks
+  Keypair
 } from '@stellar/stellar-sdk';
 
-// Helper function to convert Stellar public key to contract address
-function publicKeyToContractAddress(publicKey: string) {
-  try {
-    console.log('[DEBUG] Raw public key input:', publicKey);
-    
-    if (!publicKey) {
-      throw new Error('Public key is required');
-    }
+// Configuration
+const CONTRACT_ID = "CCSCZVF323SG7EMAIJSTKTOVILHOLUWUYPP54OERIXDVVKZESATID7MK";
+const RPC_URL = "https://soroban-testnet.stellar.org:443";
+const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+const USER_ID = "GCSXUXZSA2BVUCTVYK446DSPZOO3JHVCDCK36FALHZKLFOKRJWIS3AYI";
 
-    // Remove any whitespace and convert to uppercase
-    const cleanKey = publicKey.trim().toUpperCase();
-    
-    console.log('[DEBUG] Cleaned public key:', cleanKey);
-    
-    // Basic validation
-    if (typeof cleanKey !== 'string') {
-      throw new Error(`Invalid key type: ${typeof cleanKey} (expected string)`);
-    }
+const server = new rpc.Server(RPC_URL);
 
-    if (cleanKey.length !== 56) {
-      throw new Error(`Invalid key length: ${cleanKey.length} (expected 56)`);
-    }
-    
-    if (!cleanKey.startsWith('G')) {
-      throw new Error('Stellar public key must start with "G"');
-    }
-
-    // Check for valid characters (only A-Z and 2-7 after the first character)
-    if (!/^G[A-Z2-7]{55}$/.test(cleanKey)) {
-      throw new Error('Public key contains invalid characters. Only A-Z and 2-7 are allowed after the initial G');
-    }
-    
-    try {
-      // Try to decode the key
-      console.log('[DEBUG] Attempting to decode public key with StrKey');
-      const bytes = StrKey.decodeEd25519PublicKey(cleanKey);
+// Helper function to validate Stellar address
+function isValidStellarAddress(address: string): boolean {
+  return /^G[A-Z2-7]{55}$/.test(address);
+}
       
       if (!bytes || bytes.length !== 32) {
         throw new Error(`Decoded key has invalid length: ${bytes ? bytes.length : 'null'}`);
@@ -92,10 +64,32 @@ function publicKeyToContractAddress(publicKey: string) {
   }
 }
 
-// --- AYARLAR ---
+// --- CONFIGURATION ---
 const CONTRACT_ID = "CCSCZVF323SG7EMAIJSTKTOVILHOLUWUYPP54OERIXDVVKZESATID7MK";
 const RPC_URL = "https://soroban-testnet.stellar.org:443";
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
+
+// In a production app, you would get this from the user's wallet
+// For now, we'll use a placeholder
+const USER_ID = "GAFHRBGJ4765LCHPFP5VFP3B5B4Y6B4OGUUK4YRPJHOUE4T5X63MRZRB";
+
+// Initialize the server
+const server = new rpc.Server(RPC_URL);
+
+// Error handling
+class TransferError extends Error {
+  constructor(message: string, public status: number = 400, public details?: any) {
+    super(message);
+    this.name = 'TransferError';
+  }
+
+  toResponse() {
+    return NextResponse.json(
+      { error: this.message, details: this.details },
+      { status: this.status }
+    );
+  }
+}
 
 // Admin hesabı için secret key (güvenli bir yerde saklanmalıdır)
 const ADMIN_SECRET = "SBWQXDRZMJQBVET22CQ5RUZCBF5PQDORVYNEOFHZLWKFTIBMMIZYMSYV";
@@ -112,7 +106,97 @@ interface ErrorWithMessage extends Error {
   data?: any;
 }
 
+// Helper function to validate Stellar address
+function isValidStellarAddress(address: string): boolean {
+  return /^G[A-Z2-7]{55}$/.test(address);
+}
+
 export async function POST(request: Request) {
+  try {
+    const { to, amount } = await request.json();
+
+    // Input validation
+    if (!to || !amount) {
+      throw new TransferError('Recipient address and amount are required');
+    }
+
+    if (!isValidStellarAddress(to)) {
+      throw new TransferError('Invalid recipient address');
+    }
+
+    const amountNum = parseFloat(amount);
+    if (isNaN(amountNum) || amountNum <= 0) {
+      throw new TransferError('Amount must be a positive number');
+    }
+
+    // In a real app, you would get the user's secret key from their wallet
+    // For now, we'll use a placeholder
+    const userSecretKey = process.env.USER_SECRET_KEY;
+    if (!userSecretKey) {
+      throw new TransferError('Server configuration error', 500);
+    }
+
+    // Create a keypair from the secret key
+    const keypair = Keypair.fromSecret(userSecretKey);
+    const sourceAccount = new Account(keypair.publicKey(), (await server.getAccount(keypair.publicKey())).sequenceNumber());
+
+    // Create a contract instance
+    const contract = new Contract(CONTRACT_ID);
+
+    // Prepare the transfer operation
+    const operation = contract.call(
+      'transfer',
+      new Address(USER_ID).toScVal(),  // from
+      new Address(to).toScVal(),       // to
+      nativeToScVal(amountNum, { type: 'i128' })  // amount
+    );
+
+    // Build the transaction
+    const tx = new TransactionBuilder(sourceAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: NETWORK_PASSPHRASE,
+    })
+      .addOperation(operation)
+      .setTimeout(30)
+      .build();
+
+    // Sign the transaction
+    tx.sign(keypair);
+
+    // Submit the transaction
+    const response = await server.sendTransaction(tx);
+    
+    // Wait for the transaction to complete
+    const transactionResponse = await server.getTransaction(response.hash);
+    
+    if (transactionResponse.status === 'FAILED') {
+      throw new TransferError('Transaction failed', 400, {
+        hash: response.hash,
+        result: transactionResponse.resultXdr
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      hash: response.hash,
+      result: transactionResponse.resultXdr
+    });
+
+  } catch (error: any) {
+    console.error('Transfer error:', error);
+    
+    if (error instanceof TransferError) {
+      return error.toResponse();
+    }
+
+    return NextResponse.json(
+      { 
+        error: error.message || 'Internal server error',
+        details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      },
+      { status: 500 }
+    );
+  }
   try {
     const server = new rpc.Server(RPC_URL);
     const { destination, amount } = await request.json();

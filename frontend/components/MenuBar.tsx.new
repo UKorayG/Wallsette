@@ -1,0 +1,87 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { Terminal, Code, Cpu, Settings, Menu, X } from 'lucide-react';
+
+export default function MenuBar() {
+  const [isOpen, setIsOpen] = useState(false);
+  const pathname = usePathname();
+
+  const menuItems = [
+    { name: 'Terminal', icon: <Terminal size={20} />, path: '/' },
+    { name: 'Code', icon: <Code size={20} />, path: '/code' },
+    { name: 'System', icon: <Cpu size={20} />, path: '/system' },
+    { name: 'Settings', icon: <Settings size={20} />, path: '/settings' },
+  ];
+
+  // Close menu when clicking outside on mobile
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      const menu = document.querySelector('nav');
+      const menuButton = document.querySelector('button[aria-label="Toggle menu"]');
+      
+      if (isOpen && menu && !menu.contains(target) && menuButton && !menuButton.contains(target)) {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isOpen]);
+
+  return (
+    <>
+      {/* Mobile menu button */}
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="fixed top-4 right-4 z-50 p-2 rounded-md text-[#00f3ff] hover:bg-[#00f3ff22] transition-colors md:hidden"
+        aria-label="Toggle menu"
+      >
+        {isOpen ? <X size={24} /> : <Menu size={24} />}
+      </button>
+
+      {/* Menu overlay */}
+      <div 
+        className={`fixed inset-0 bg-black/80 backdrop-blur-sm z-40 transition-opacity duration-300 ${
+          isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
+        } md:hidden`}
+        onClick={() => setIsOpen(false)}
+      />
+
+      {/* Menu sidebar */}
+      <nav 
+        className={`fixed top-0 right-0 h-full w-64 bg-[#0a0a0a] border-l border-[#00f3ff33] transform ${
+          isOpen ? 'translate-x-0' : 'translate-x-full'
+        } transition-transform duration-300 ease-in-out z-40 p-4 md:translate-x-0 md:relative md:w-20 md:border-r md:border-l-0`}
+      >
+        <div className="flex flex-col h-full">
+          <div className="flex-1 flex flex-col space-y-2">
+            {menuItems.map((item) => (
+              <Link
+                key={item.name}
+                href={item.path}
+                className={`flex items-center p-3 rounded-md transition-colors ${
+                  pathname === item.path 
+                    ? 'bg-[#00f3ff22] text-[#00f3ff]' 
+                    : 'text-[#00f3ffaa] hover:bg-[#00f3ff11]'
+                }`}
+                onClick={() => setIsOpen(false)}
+              >
+                <span className="mr-3">{item.icon}</span>
+                <span className="md:hidden">{item.name}</span>
+              </Link>
+            ))}
+          </div>
+          
+          {/* Version number */}
+          <div className="p-4 border-t border-[#00f3ff11] text-center text-xs text-gray-500">
+            v1.0.0
+          </div>
+        </div>
+      </nav>
+    </>
+  );
+}

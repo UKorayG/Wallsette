@@ -8,13 +8,13 @@ export default function Home() {
   const [isCritical, setIsCritical] = useState(false);
   const [booted, setBooted] = useState(false);
 
-  // 1. Boot Animasyonu
+  // 1. Boot Animation
   useEffect(() => {
     const timer = setTimeout(() => setBooted(true), 2500);
     return () => clearTimeout(timer);
   }, []);
 
-  // 2. Veri Çekme Döngüsü
+  // 2. Data Fetching
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -29,18 +29,27 @@ export default function Home() {
         } else {
           setIsCritical(false);
         }
-      } catch (err) {
-        setBalance("CONNECTION_LOST");
-        setIsCritical(true);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setBalance("Error");
       }
     };
 
-    if (booted) {
-        fetchData(); // İlk çekiş
-        const interval = setInterval(fetchData, 1000); // Döngü
-        return () => clearInterval(interval);
-    }
-  }, [booted]);
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!booted) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="text-4xl mb-4">SYSTEM BOOTING</div>
+          <div className="animate-pulse">_</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-[#020202] text-[#00f3ff] font-vhs relative flex flex-col items-center justify-center p-4 overflow-hidden selection:bg-[#ff003c] selection:text-black">
@@ -53,76 +62,104 @@ export default function Home() {
       <div className="absolute inset-0 bg-[linear-gradient(rgba(0,243,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(0,243,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none"></div>
 
       {/* --- ANA TERMİNAL KUTUSU --- */}
-      <div className={`relative z-10 w-full max-w-3xl bg-black/90 border-2 ${isCritical ? 'border-[#ff003c] shadow-[0_0_50px_rgba(255,0,60,0.2)]' : 'border-[#00f3ff] shadow-[0_0_30px_rgba(0,243,255,0.1)]'} p-6 md:p-10 transition-all duration-500`}>
-        
-        {/* Header Bar */}
-        <div className="flex justify-between items-start border-b border-[#00f3ff]/20 pb-4 mb-8">
-            <div>
-                <h1 className="text-3xl md:text-5xl flex items-center gap-3 tracking-widest glitch-text">
-                    <Terminal size={32} />
-                    WALLSETTE_OS
-                </h1>
-                <div className="flex gap-4 mt-2 text-sm opacity-60 font-mono">
-                    <span>&gt; KERNEL: V23.2</span>
-                    <span>&gt; NET: TESTNET</span>
-                </div>
+      <div className="relative z-10">
+        {/* Main Content */}
+        <div className="max-w-4xl mx-auto p-6 bg-black/70 backdrop-blur-sm rounded-lg border border-[#00f3ff33]">
+          {/* Status Bar */}
+          <div className="flex justify-between items-center mb-6 p-3 bg-[#0a0a0a] rounded border border-[#00f3ff22]">
+            <div className="flex items-center space-x-2">
+              <div className={`w-3 h-3 rounded-full ${isCritical ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`}></div>
+              <span>STATUS: {isCritical ? 'CRITICAL' : 'NOMINAL'}</span>
             </div>
-            
-            {/* Status Badge */}
-            <div className={`border px-3 py-1 flex items-center gap-2 text-sm font-bold tracking-widest ${isCritical ? 'border-[#ff003c] text-[#ff003c] bg-[#ff003c]/10 animate-pulse' : 'border-[#00f3ff] text-[#00f3ff] bg-[#00f3ff]/10'}`}>
-                <Radio size={14} className={isCritical ? "animate-spin" : ""} />
-                {isCritical ? "CRITICAL FAILURE" : "SYSTEM STABLE"}
+            <div className="text-right">
+              <div className="text-sm opacity-75">BALANCE</div>
+              <div className="font-mono text-xl">{balance} WALLET</div>
             </div>
-        </div>
+          </div>
 
-        {/* EKRAN İÇERİĞİ */}
-        <div className="min-h-[250px] flex flex-col items-center justify-center relative bg-[#050505] border border-[#00f3ff]/10 p-8 mb-8">
-            
-            {!booted ? (
-                // Boot Ekranı (Düzeltilen Kısım Burası)
-                <div className="text-left w-full space-y-2 text-lg font-mono">
-                    <p className="text-white">&gt; INITIALIZING BIOS...</p>
-                    <p className="text-white/80">&gt; LOADING MEMORY BLOCKS... [OK]</p>
-                    <p className="text-white/60">&gt; ESTABLISHING RPC BRIDGE... [OK]</p>
-                    <p className="text-[#00f3ff] animate-pulse">&gt; STARTING WALLSETTE DAEMON...</p>
+          {/* Main Interface */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Left Panel */}
+            <div className="md:col-span-2 space-y-6">
+              {/* Terminal */}
+              <div className="bg-[#0a0a0a] p-4 rounded border border-[#00f3ff22]">
+                <div className="flex items-center mb-3">
+                  <Terminal className="text-[#00f3ff] mr-2" />
+                  <h2 className="text-lg">TERMINAL</h2>
                 </div>
-            ) : (
-                // Bakiye Ekranı
-                <>
-                    <span className="absolute top-3 left-3 text-xs opacity-50 tracking-[0.2em]">CURRENT_ASSET_LIQUIDITY</span>
-                    
-                    <div className={`text-7xl md:text-9xl font-bold tracking-tighter filter drop-shadow-[0_0_10px_currentColor] ${isCritical ? 'text-[#ff003c] shake-hard' : 'text-[#00f3ff]'}`}>
-                        <GlitchText 
-                            text={balance} 
-                            speed={50} 
-                            isRed={isCritical} 
-                            glitchProbability={isCritical ? 0.3 : 0.05} 
-                        />
-                    </div>
+                <div className="h-40 overflow-y-auto font-mono text-sm bg-black p-3 rounded">
+                  <p className="text-green-400">$ wallsette-cli --status</p>
+                  <p>Initializing system...</p>
+                  <p>Checking connections... <span className="text-green-400">OK</span></p>
+                  <p>Loading modules... <span className="text-green-400">DONE</span></p>
+                  <p className="mt-2">System ready.</p>
+                  <p className="text-yellow-400">$ _</p>
+                </div>
+              </div>
 
-                    <div className="absolute bottom-3 right-3 text-xs opacity-60 flex items-center gap-2">
-                         <span className="animate-pulse">●</span> LIVE DECAY: 0.1% / SEC
-                    </div>
-                </>
-            )}
-        </div>
-
-        {/* FOOTER / KOMUTLAR */}
-        {booted && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-lg">
-                <button className="group border border-[#00f3ff]/50 hover:bg-[#00f3ff] hover:text-black p-4 flex items-center justify-between transition-all">
-                    <span className="flex items-center gap-2"><Play size={16} /> EXECUTE_TRANSFER.exe</span>
-                    <span className="opacity-0 group-hover:opacity-100">&lt;&lt;</span>
+              {/* Quick Actions */}
+              <div className="grid grid-cols-2 gap-4">
+                <button className="p-4 bg-[#00f3ff11] hover:bg-[#00f3ff22] rounded border border-[#00f3ff33] transition-colors flex flex-col items-center justify-center">
+                  <Play className="w-8 h-8 mb-2" />
+                  <span>START NODE</span>
                 </button>
-
-                {isCritical && (
-                    <button className="group border border-[#ff003c] text-[#ff003c] hover:bg-[#ff003c] hover:text-black p-4 flex items-center justify-between transition-all animate-pulse">
-                        <span className="flex items-center gap-2"><ShieldAlert size={16} /> EMERGENCY_DUMP</span>
-                        <span className="font-bold">!!!</span>
-                    </button>
-                )}
+                <button className="p-4 bg-[#00f3ff11] hover:bg-[#00f3ff22] rounded border border-[#00f3ff33] transition-colors flex flex-col items-center justify-center">
+                  <Radio className="w-8 h-8 mb-2" />
+                  <span>CONNECT</span>
+                </button>
+              </div>
             </div>
-        )}
+
+            {/* Right Panel */}
+            <div className="space-y-6">
+              {/* System Status */}
+              <div className="bg-[#0a0a0a] p-4 rounded border border-[#00f3ff22]">
+                <h2 className="text-lg mb-3">SYSTEM STATUS</h2>
+                <div className="space-y-3">
+                  <div className="flex justify-between">
+                    <span>CPU:</span>
+                    <span className="text-green-400">34%</span>
+                  </div>
+                  <div className="h-2 bg-[#003333] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#00f3ff]" style={{ width: '34%' }}></div>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>MEMORY:</span>
+                    <span className="text-green-400">56%</span>
+                  </div>
+                  <div className="h-2 bg-[#003333] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#00f3ff]" style={{ width: '56%' }}></div>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>STORAGE:</span>
+                    <span className="text-green-400">12%</span>
+                  </div>
+                  <div className="h-2 bg-[#003333] rounded-full overflow-hidden">
+                    <div className="h-full bg-[#00f3ff]" style={{ width: '12%' }}></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Alerts */}
+              <div className="bg-[#0a0a0a] p-4 rounded border border-[#00f3ff22]">
+                <div className="flex items-center mb-3">
+                  <AlertTriangle className="text-yellow-500 mr-2" />
+                  <h2 className="text-lg">ALERTS</h2>
+                </div>
+                {isCritical ? (
+                  <div className="text-red-400 text-sm flex items-start">
+                    <ShieldAlert className="w-4 h-4 mt-0.5 mr-2 flex-shrink-0" />
+                    <span>WARNING: Low balance detected. Please add more funds to your wallet.</span>
+                  </div>
+                ) : (
+                  <div className="text-green-400 text-sm">
+                    No critical issues detected.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
       </div>
 

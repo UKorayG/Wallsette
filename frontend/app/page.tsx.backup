@@ -1,0 +1,385 @@
+"use client";
+import { useState, useEffect } from 'react';
+import MenuBar from '../components/MenuBar';
+import { Terminal, AlertTriangle, Loader2 } from 'lucide-react';
+
+export default function Home() {
+  const [balance, setBalance] = useState<string>("Initializing...");
+  const [isCritical, setIsCritical] = useState<boolean>(false);
+  const [booted, setBooted] = useState<boolean>(false);
+  const [isTransferring, setIsTransferring] = useState<boolean>(false);
+  const [transferData, setTransferData] = useState({
+    amount: '100',
+    // Kullanıcının gireceği hedef adres için boş bırakıyoruz
+    destination: ''
+  });
+  
+  // Input değişikliklerini yönetme
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setTransferData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+  
+  // Validate Stellar public key format
+  const isValidPublicKey = (key: string) => {
+    return key.length === 56 && key.startsWith('G');
+  };
+
+  // Admin public key - moved to the top of the component
+  const ADMIN_PUBLIC = 'GAFHRBGJ4765LCHPFP5VFP3B5B4Y6B4OGUUK4YRPJHOUE4T5X63MRZRB';
+
+  // 1. Boot Animation
+  useEffect(() => {
+    const timer = setTimeout(() => setBooted(true), 2500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 2. Balance Check Loop
+  useEffect(() => {
+    // Skip if not booted yet
+    if (!booted) {
+      setBalance('Booting...');
+      return;
+    }
+
+    let isMounted = true;
+    let retryCount = 0;
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 3000; // 3 seconds
+    let retryTimer: NodeJS.Timeout | null = null;
+
+    const fetchData = async () => {
+      if (!isMounted) return;
+      
+      try {
+        // Show loading state
+        setBalance('...');
+        
+        console.log(`🔄 [${new Date().toISOString()}] Checking balance... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        const startTime = Date.now();
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        const response = await fetch(`/api/check?publicKey=${ADMIN_PUBLIC}`, {
+          cache: 'no-store',
+          signal: controller.signal,
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0',
+            'X-Request-Id': `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        const responseTime = Date.now() - startTime;
+        console.log(`⏱️ API response time: ${responseTime}ms`);
+        
+        if (!response.ok) {
+          let errorText = '';
+          try {
+            errorText = await response.text();
+            const errorData = errorText ? JSON.parse(errorText) : {};
+            console.error('❌ API Error Response:', {
+              status: response.status,
+              statusText: response.statusText,
+              requestId: response.headers.get('x-request-id'),
+              error: errorData
+            });
+          } catch (e) {
+            console.error('❌ Failed to parse error response:', e);
+          }
+          
+          throw new Error(`HTTP ${response.status} - ${response.statusText}`);
+        }
+        
+        let data;
+        try {
+          data = await response.json();
+          console.log('📊 Balance data received:', data);
+        } catch (e) {
+          console.error('❌ Failed to parse JSON response:', e);
+          throw new Error('Invalid response from server');
+        }
+        
+        if (!isMounted) return;
+        
+        if (data.status === 'SUCCESS') {
+          retryCount = 0; // Reset retry counter on success
+          const val = data.balance;
+          setBalance(val);
+
+          const numVal = parseInt(val);
+          if (!isNaN(numVal)) {
+            setIsCritical(numVal < 900000);
+          } else {
+            console.warn('⚠️ Invalid balance value received:', val);
+            setIsCritical(true);
+          }
+          
+          // Schedule next update (every 5 seconds)
+          if (isMounted) {
+            retryTimer = setTimeout(fetchData, 5000);
+          }
+        } else {
+          throw new Error(data.error || 'Failed to get balance');
+        }
+      } catch (err) {
+        const error = err as Error;
+        console.error(`❌ [${new Date().toISOString()}] Bakiye çekme hatası:`, {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+          attempt: `${retryCount + 1}/${MAX_RETRIES}`
+        });
+        
+        if (!isMounted) return;
+        
+        setBalance("CONNECTION_LOST");
+        setIsCritical(true);
+        
+        // Retry logic
+        if (retryCount < MAX_RETRIES - 1) {
+          retryCount++;
+          const delay = RETRY_DELAY * Math.pow(2, retryCount - 1); // Exponential backoff
+          console.log(`⏳ Retrying in ${delay}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`);
+          
+          retryTimer = setTimeout(() => {
+            if (isMounted) fetchData();
+          }, delay);
+        } else {
+          console.error('❌ Max retries reached. Please check your connection and try again.');
+          // Reset retry counter after max retries
+          retryCount = 0;
+          // Schedule next attempt after longer delay
+          retryTimer = setTimeout(() => {
+            if (isMounted) fetchData();
+          }, 30000); // 30 seconds before next attempt
+        }
+    };
+
+    // Initial fetch when component mounts
+    if (booted) {
+      fetchData();
+    }
+    
+    // Cleanup function
+    return () => {
+      isMounted = false;
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [booted]);
+
+  return (
+    <main className="min-h-screen bg-[#020202] text-[#00f3ff] font-vhs relative flex flex-col items-center justify-center p-4 overflow-hidden selection:bg-[#ff003c] selection:text-black">
+      
+      {/* --- ATMOSFER KATMANI --- */}
+      <div className="scanlines"></div>
+      <div className="noise"></div>
+      
+      {/* Grid Arkaplan */}
+      <div className="absolute inset-0 bg-[linear-gradient(rgba(0,243,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(0,243,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px] pointer-events-none"></div>
+
+      {/* --- ANA TERMİNAL KUTUSU --- */}
+      <div className={`relative z-10 w-full max-w-3xl bg-black/90 border-2 ${isCritical ? 'border-[#ff003c] shadow-[0_0_50px_rgba(255,0,60,0.2)]' : 'border-[#00f3ff] shadow-[0_0_30px_rgba(0,243,255,0.1)]'} p-6 md:p-10 transition-all duration-500`}>
+        
+        {/* Header Bar */}
+        <div className="flex justify-between items-start border-b border-[#00f3ff]/20 pb-4 mb-8">
+            <div>
+                <h1 className="text-3xl md:text-5xl flex items-center gap-3 tracking-widest glitch-text">
+                    <Terminal size={32} />
+                    WALLSETTE_OS
+                </h1>
+                <div className="flex gap-4 mt-2 text-sm opacity-60 font-mono">
+                    <span>&gt; KERNEL: V23.2</span>
+                    <span>&gt; NET: TESTNET</span>
+                </div>
+            </div>
+            
+            {/* Status Badge */}
+            <div className={`border px-3 py-1 flex items-center gap-2 text-sm font-bold tracking-widest ${isCritical ? 'border-[#ff003c] text-[#ff003c] bg-[#ff003c]/10 animate-pulse' : 'border-[#00f3ff] text-[#00f3ff] bg-[#00f3ff]/10'}`}>
+                <Radio size={14} className={isCritical ? "animate-spin" : ""} />
+                {isCritical ? "CRITICAL FAILURE" : "SYSTEM STABLE"}
+            </div>
+        </div>
+
+        {/* EKRAN İÇERİĞİ */}
+        <div className="min-h-[250px] flex flex-col items-center justify-center relative bg-[#050505] border border-[#00f3ff]/10 p-8 mb-8">
+            
+            {!booted ? (
+                // Boot Ekranı (Düzeltilen Kısım Burası)
+                <div className="text-left w-full space-y-2 text-lg font-mono">
+                    <p className="text-white">&gt; INITIALIZING BIOS...</p>
+                    <p className="text-white/80">&gt; LOADING MEMORY BLOCKS... [OK]</p>
+                    <p className="text-white/60">&gt; ESTABLISHING RPC BRIDGE... [OK]</p>
+                    <p className="text-[#00f3ff] animate-pulse">&gt; STARTING WALLSETTE DAEMON...</p>
+                </div>
+            ) : (
+                // Bakiye Ekranı
+                <>
+                    <span className="absolute top-3 left-3 text-xs opacity-50 tracking-[0.2em]">CURRENT_ASSET_LIQUIDITY</span>
+                    
+                    <div className={`text-7xl md:text-9xl font-bold tracking-tighter filter drop-shadow-[0_0_10px_currentColor] ${isCritical ? 'text-[#ff003c] shake-hard' : 'text-[#00f3ff]'}`}>
+                            <GlitchText 
+                                text={balance} 
+                                speed={50} 
+                                isRed={isCritical}
+                            />
+                    </div>
+
+                    <div className="absolute bottom-3 right-3 text-xs opacity-60 flex items-center gap-2">
+                         <span className="animate-pulse">●</span> LIVE DECAY: 0.1% / SEC
+                    </div>
+                </>
+            )}
+        </div>
+
+        {/* FOOTER / COMMANDS */}
+        {booted && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-lg">
+                <button 
+                    onClick={async () => {
+                        if (isTransferring) return;
+                        
+                        try {
+                            // Validate form
+                            if (!transferData.destination || !transferData.destination.trim()) {
+                                throw new Error('Lütfen bir hedef adres giriniz');
+                            }
+                            
+                            // Clean and validate destination
+                            let destination = transferData.destination.trim().toUpperCase();
+                            
+                            // Show validation state
+                            console.log('🔍 Validating destination address:', {
+                                address: destination,
+                                length: destination.length,
+                                startsWithG: destination.startsWith('G'),
+                                onlyValidChars: /^[A-Z0-9]+$/.test(destination)
+                            });
+                            
+                            // Validate format
+                            const validations = [
+                                {
+                                    condition: destination.length === 56,
+                                    error: `Geçersiz adres uzunluğu: ${destination.length} (56 olmalı)`
+                                },
+                                {
+                                    condition: destination.startsWith('G'),
+                                    error: 'Geçersiz adres formatı. Adres "G" ile başlamalı'
+                                },
+                                {
+                                    condition: /^[A-Z0-9]+$/.test(destination),
+                                    error: 'Geçersiz karakterler içeriyor. Sadece büyük harf ve rakam kullanın'
+                                }
+                            ];
+                            
+                            for (const { condition, error } of validations) {
+                                if (!condition) {
+                                    throw new Error(error);
+                                }
+                            }
+                            
+                            // Prevent self-transfer
+                            if (destination === 'GAFHRBGJ4765LCHPFP5VFP3B5B4Y6B4OGUUK4YRPJHOUE4T5X63MRZRB') {
+                                throw new Error('Kendinize transfer yapamazsınız');
+                            }
+                            
+                            // Start transfer process
+                            setIsTransferring(true);
+                            
+                            // Update UI to show processing state
+                            const originalBalance = balance;
+                            setBalance('...');
+                            
+                            console.log('🔄 Transfer işlemi başlatılıyor...', {
+                                amount: transferData.amount,
+                                destination: destination
+                            });
+                            
+                            const response = await fetch('/api/transfer', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    amount: transferData.amount,
+                                    destination: destination
+                                })
+                            });
+
+                            const responseData = await response.json();
+                            console.log('📨 Sunucu yanıtı:', responseData);
+
+                            if (!response.ok) {
+                                throw new Error(responseData.error || responseData.message || 'Transfer başarısız oldu');
+                            }
+
+                            if (responseData.balance) {
+                                console.log('✅ Bakiye güncellendi:', responseData.balance);
+                                setBalance(responseData.balance);
+                            }
+                            
+                        } catch (error) {
+                            const errorMessage = error instanceof Error ? error.message : 'Bilinmeyen bir hata oluştu';
+                            console.error('❌ Transfer hatası:', {
+                                message: errorMessage,
+                                name: error instanceof Error ? error.name : 'UnknownError',
+                                stack: error instanceof Error ? error.stack : 'No stack trace'
+                            });
+                            alert(`HATA: ${errorMessage}`);
+                        } finally {
+                            setIsTransferring(false);
+                        }
+                    }}
+                    disabled={isTransferring}
+                    className={`group border ${isTransferring ? 'opacity-50 cursor-not-allowed' : 'border-[#00f3ff]/50 hover:bg-[#00f3ff] hover:text-black'} p-4 flex items-center justify-between transition-all`}
+                >
+                    <div className="flex flex-col w-full">
+                        <div className="flex items-center gap-2 mb-2">
+                            {isTransferring ? <Loader2 className="animate-spin" size={16} /> : <Play size={16} />}
+                            EXECUTE_TRANSFER.exe
+                        </div>
+                        <input
+                            type="text"
+                            name="destination"
+                            value={transferData.destination}
+                            onChange={handleInputChange}
+                            placeholder="Hedef Adres (G ile başlamalı)"
+                            className="w-full px-3 py-2 bg-black/50 border border-[#00f3ff]/30 text-white/80 text-sm focus:outline-none focus:border-[#00f3ff]"
+                        />
+                        <div className="text-xs mt-1 text-[#00f3ff]/70">
+                            Örnek: GAIH3S77Q6OAY6NYWJ4FF3JETPEB5CA2A4XT3HVR5S4VZJWL6PCHF2W5
+                        </div>
+                    </div>
+                    <span className={`${isTransferring ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                        {isTransferring ? '...' : '<<'}
+                    </span>
+                </button>
+
+                {isCritical && (
+                    <button 
+                        onClick={() => {
+                            setIsCritical(false);
+                        }}
+                        className="group border border-[#ff003c] text-[#ff003c] hover:bg-[#ff003c] hover:text-black p-4 flex items-center justify-between transition-all animate-pulse"
+                    >
+                        <span className="flex items-center gap-2"><ShieldAlert size={16} /> EMERGENCY_DUMP</span>
+                        <span className="font-bold">!!!</span>
+                    </button>
+                )}
+            </div>
+        )}
+
+      </div>
+
+      <div className="fixed bottom-4 text-[10px] text-white/20 tracking-[0.5em]">
+        SESSION ID: CCS...MK // ENCRYPTED
+      </div>
+
+    </main>
+  );
+}
